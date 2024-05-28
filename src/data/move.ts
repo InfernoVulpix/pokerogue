@@ -4307,7 +4307,7 @@ export function initMoves() {
     new AttackMove(Moves.BIDE, Type.NORMAL, MoveCategory.PHYSICAL, -1, -1, 10, -1, 1, 1)
       .ignoresVirtual()
       .target(MoveTarget.USER)
-      .unimplemented(),
+      .attr(AddBattlerTagAttr, BattlerTagType.BIDE_TRACKER, true, true),
     new SelfStatusMove(Moves.METRONOME, Type.NORMAL, -1, 10, -1, 0, 1)
       .attr(RandomMoveAttr)
       .ignoresVirtual(),

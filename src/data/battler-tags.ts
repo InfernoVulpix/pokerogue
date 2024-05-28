@@ -1,7 +1,7 @@
 import { CommonAnim, CommonBattleAnim } from "./battle-anims";
 import { CommonAnimPhase, MoveEffectPhase, MovePhase, PokemonHealPhase, ShowAbilityPhase, StatChangePhase } from "../phases";
 import { getPokemonMessage, getPokemonPrefix } from "../messages";
-import Pokemon, { MoveResult, HitResult } from "../field/pokemon";
+import Pokemon, { MoveResult, HitResult, PokemonMove } from "../field/pokemon";
 import { Stat, getStatName } from "./pokemon-stat";
 import { StatusEffect } from "./status-effect";
 import * as Utils from "../utils";
@@ -15,6 +15,7 @@ import { TerrainType } from "./terrain";
 import { WeatherType } from "./weather";
 import { BattleStat } from "./battle-stat";
 import { allAbilities } from "./ability"
+import { BattlerIndex } from "../battle";
 
 export enum BattlerTagLapseType {
   FAINT,
@@ -1117,6 +1118,185 @@ export class CursedTag extends BattlerTag {
   }
 }
 
+export class BideTrackerTag extends BattlerTag {
+  public damage: number;
+  public target: number;
+
+  constructor() {
+    super(BattlerTagType.BIDE_TRACKER, BattlerTagLapseType.TURN_END, 3, Moves.BIDE);
+    this.damage = 0;
+    this.target = null;
+  }
+
+  lapse(pokemon: Pokemon, lapseType: BattlerTagLapseType): boolean {
+    if (pokemon.turnData) {
+      this.damage += pokemon.turnData.damageTaken;
+      if (pokemon.turnData.attacksReceived[0]){
+        this.target = pokemon.turnData.attacksReceived[0].sourceId;
+      }
+    }
+
+    if (this.turnCount > 1){
+      pokemon.addTag(BattlerTagType.BIDE, this.damage, Moves.NONE, this.target); // Super jank.
+    }
+    else {
+      pokemon.addTag(BattlerTagType.BIDE, this.damage, Moves.BIDE, this.target);
+    }
+    
+    // Cancel next turn.
+    pokemon.getMoveQueue().push({ move: Moves.NONE, targets: [] });
+
+    console.log ("Damage: " + this.damage);
+    console.log ("Target: " + this.target);
+    console.log ("Turns: " + this.turnCount);
+    return super.lapse(pokemon, lapseType);
+  }
+
+  getDamage(): integer { // Cannot be referenced.
+    return this.damage;
+  }
+
+  getTarget(): number {
+    return this.target;
+  }
+}
+
+export class BideTag extends BattlerTag {
+  public damage: number;
+  public target: number; // Might need to be source id?
+  public active: boolean;
+
+  constructor(dmg: number, act: Moves, trgt: number) {
+    super(BattlerTagType.BIDE, BattlerTagLapseType.PRE_MOVE, 1, Moves.BIDE);
+    this.damage = dmg;
+    this.target = trgt;
+    this.active = act === Moves.BIDE;
+  }
+
+  lapse(pokemon: Pokemon, lapseType: BattlerTagLapseType): boolean {
+    // Cancel attack message
+    (pokemon.scene.getCurrentPhase() as MovePhase).cancel();
+    pokemon.getMoveQueue().shift();
+
+    if (this.active){ // Time to fire
+      // Update damage and target if possible
+      if (pokemon.turnData) {
+        this.damage += pokemon.turnData.damageTaken;
+        if (pokemon.turnData.attacksReceived[0]){
+          this.target = pokemon.turnData.attacksReceived[0].sourceId;
+        }
+      }
+      
+      pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' unleashed energy!'));
+      
+      // Fail if 0 damage
+      if (!this.damage) {
+        pokemon.scene.queueMessage('But it failed!');
+        return this.active;
+      }
+      else {
+        console.log ("Bide firing with " + this.damage + " damage sustained.");
+        // Identify target
+        let targetMon = null;
+
+        // Scan field for whoever last hit you
+        for (let mon of pokemon.scene.getField()) {
+          if (this.target == mon.id) targetMon = mon;
+        }
+
+        // If no match exists, pick a random enemy
+        if (!targetMon) targetMon = pokemon.scene.getEnemyField()[Utils.randInt(pokemon.scene.getEnemyField().length)];
+        //targetMon = pokemon.getOpponents()[Utils.randSeedInt(pokemon.getOpponents().length)].getBattlerIndex();
+
+        // Attack
+        //pokemon.getMoveQueue().push({ move: Moves.SONIC_BOOM, targets: [targetMon]});
+        //pokemon.scene.pushMovePhase(new MovePhase(pokemon.scene, pokemon, [targetMon], new PokemonMove(Moves.SCRATCH)));
+          
+        //pokemon.getMoveQueue().push({ move: new AttackMove(), targets: [] });
+      }
+
+      // Clean up tags
+      pokemon.removeTag(BattlerTagType.BIDE);
+    }
+    else { // Just cancel attack
+      pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' is storing energy!'));
+      new CommonBattleAnim(CommonAnim.BIDE, pokemon).play(pokemon.scene);
+    }
+
+    return this.active;
+
+
+
+    // Handles move overrides and damage calculations
+    //pokemon.getMoveQueue().push({ move: Moves.NONE, targets: [] })
+
+    //const ret = super.lapse(pokemon, lapseType);
+    //if (ret) {
+      // Priority 1?
+      //pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' is storing energy!'));
+      //new CommonBattleAnim(CommonAnim.BIDE, pokemon).play(pokemon.scene);
+      //(pokemon.scene.getCurrentPhase() as MovePhase).cancel();
+      //pokemon.getMoveQueue().shift();
+    //}
+    //else {
+      //pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' unleashed energy!'));
+      //pokemon.removeTag(BattlerTagType.BIDE_TRACKER);
+
+      //let dmg = pokemon.findTag(t => t instanceof BideTrackerTag).getDamage();
+
+      //if (!dmg) {
+      //  pokemon.scene.queueMessage('But it failed!');
+      //}
+      //else {
+        // Identify target.  Last attacker if possible, random if not.
+        //
+      //}
+    //}
+
+    //return ret;
+
+
+
+
+    //if (pokemon.turnData) this.damage += pokemon.turnData.damageTaken;
+    //pokemon.turnData.attacksReceived[0].sourceId;
+
+    // Cancel move
+    //(pokemon.scene.getCurrentPhase() as MovePhase).cancel();
+    //pokemon.getMoveQueue().shift();
+
+    //const ret = super.lapse(pokemon, lapseType);
+    //if (ret) {
+      // Display charging animation.
+      //pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' is storing energy!'));
+      // Cancel move
+      //pokemon.getMoveQueue().push({ move: Moves.NONE, targets: [] })
+    //}
+    //else {
+      // Set up big move?  Execute with priority 1?
+      //pokemon.scene.queueMessage(getPokemonMessage(pokemon, ' unleashed energy!'));
+
+      // Check if there's any damage to unleash
+      //if (!this.damage) {
+        //pokemon.scene.queueMessage('But it failed!');
+        //(pokemon.scene.getCurrentPhase() as MovePhase).cancel();
+        //pokemon.getMoveQueue().shift();
+      //}
+      //else {
+        // Identify target (last Pokemon that hit it, random otherwise)
+        //if(pokemon.turnData)
+
+        // Random target
+        //let targets: BattlerIndex[];
+        //targets = pokemon.getOpponents();
+        //pokemon.scene.unshiftPhase(new MovePhase(pokemon.scene, pokemon, targets, moveset[moveIndex], true));
+
+        // Create new move hitting target
+      //}
+    //}
+  }
+}
+
 export function getBattlerTag(tagType: BattlerTagType, turnCount: integer, sourceMove: Moves, sourceId: integer): BattlerTag {
   switch (tagType) {
     case BattlerTagType.RECHARGING:
@@ -1226,6 +1406,10 @@ export function getBattlerTag(tagType: BattlerTagType, turnCount: integer, sourc
       return new TypeBoostTag(tagType, sourceMove, Type.ELECTRIC, 2, true);
     case BattlerTagType.MAGNET_RISEN:
       return new MagnetRisenTag(tagType, sourceMove);
+    case BattlerTagType.BIDE:
+      return new BideTag(turnCount, sourceMove, sourceId);
+    case BattlerTagType.BIDE_TRACKER:
+      return new BideTrackerTag();
     case BattlerTagType.NONE:
     default:
         return new BattlerTag(tagType, BattlerTagLapseType.CUSTOM, turnCount, sourceMove, sourceId);
